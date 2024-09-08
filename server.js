@@ -3,71 +3,40 @@ const axios = require("axios");
 const FormData = require("form-data");
 const fs = require("fs");
 const path = require("path");
-const multer = require("multer");
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
-// Set up file upload handling with multer
-const upload = multer({ dest: "uploads/" });
 
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, "public")));
 
-// Ensure the temporary directory exists
-const tempDir = path.join(__dirname, "tmp");
-if (!fs.existsSync(tempDir)) {
-  fs.mkdirSync(tempDir);
-}
-
-app.post("/upload", upload.single("imageFile"), async (req, res) => {
-  const imageUrl = req.body.imageUrl;
-  const secret = req.body.secret; // Optional secret parameter
-  const expires = req.body.expires; // Optional expires parameter
-  let tempFilePath;
+app.post("/upload", async (req, res) => {
+  const { imageUrl, secret } = req.body;
 
   try {
-    if (req.file) {
-      // Handle local file upload
-      tempFilePath = req.file.path;
-    } else if (imageUrl) {
-      // Handle URL-based upload
-      const response = await axios({
-        method: "GET",
-        url: imageUrl,
-        responseType: "stream",
+    const form = new FormData();
+
+    if (imageUrl) {
+      // If an image URL is provided, use it
+      form.append("url", imageUrl);
+    } else if (req.files && req.files.file) {
+      // If a file is uploaded
+      const tempFilePath = path.join("/tmp", "temp.jpg");
+      const writer = fs.createWriteStream(tempFilePath);
+      req.files.file.mv(tempFilePath, (err) => {
+        if (err) return res.status(500).send(err);
       });
 
-      tempFilePath = path.join(tempDir, "temp.jpg"); // Use the new temp directory
-      const writer = fs.createWriteStream(tempFilePath);
-      response.data.pipe(writer);
-
-      await new Promise((resolve, reject) => {
-        writer.on("finish", resolve);
-        writer.on("error", reject);
+      form.append("file", fs.createReadStream(tempFilePath), {
+        filename: "temp.jpg",
+        contentType: "image/jpg",
       });
     } else {
       return res.status(400).send("No image URL or file provided.");
     }
 
-    // Prepare file for upload to envs.sh
-    const form = new FormData();
-    if (req.file) {
-      form.append("file", fs.createReadStream(tempFilePath), {
-        filename: req.file.originalname || "temp.jpg",
-        contentType: req.file.mimetype || "image/jpeg",
-      });
-    } else if (imageUrl) {
-      form.append("url", imageUrl);
-    }
-
-    // Add optional parameters
     if (secret) {
       form.append("secret", secret);
-    }
-    if (expires) {
-      form.append("expires", expires);
     }
 
     const uploadResponse = await axios({
@@ -77,34 +46,14 @@ app.post("/upload", upload.single("imageFile"), async (req, res) => {
       headers: form.getHeaders(),
     });
 
-    // Remove temporary file asynchronously
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlink(tempFilePath, (err) => {
-        if (err) console.error("Error deleting temp file:", err);
-      });
+    // Clean up the temporary file if it was created
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
     }
 
-    // Send the response
     res.send(uploadResponse.data);
   } catch (error) {
-    console.error("Error details:", error); // Log the error details
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlink(tempFilePath, (err) => {
-        if (err) console.error("Error deleting temp file:", err);
-      });
-    }
-
-    let errorMessage = "An unexpected error occurred.";
-    
-    if (error.response) {
-      errorMessage = `Error from envs.sh: ${error.response.data.message || error.message}`;
-      console.error("Response data:", error.response.data); // Log the response data
-      console.error("Response status:", error.response.status); // Log the response status
-    } else if (error.code) {
-      errorMessage = `File system error: ${error.code}`;
-    }
-
-    res.status(500).send(errorMessage);
+    res.status(500).send(`Error: ${error.message}`);
   }
 });
 
