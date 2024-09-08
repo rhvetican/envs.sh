@@ -1,55 +1,97 @@
-const express = require('express');
-const axios = require('axios');
-const FormData = require('form-data');
-const fs = require('fs');
-const path = require('path');
+const express = require("express");
+const axios = require("axios");
+const FormData = require("form-data");
+const fs = require("fs");
+const path = require("path");
+const multer = require("multer");
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
+// Set up file upload handling with multer
+const upload = multer({ dest: "uploads/" });
 
 // Serve static files from the 'public' directory
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, "public")));
 
-app.post('/upload', async (req, res) => {
-    const imageUrl = req.body.imageUrl;
+app.post("/upload", upload.single("imageFile"), async (req, res) => {
+  const imageUrl = req.body.imageUrl;
+  const secret = req.body.secret; // Optional secret parameter
+  const expires = req.body.expires; // Optional expires parameter
+  let tempFilePath;
 
-    try {
-        const response = await axios({
-            method: 'GET',
-            url: imageUrl,
-            responseType: 'stream',
-        });
+  try {
+    if (req.file) {
+      // Handle local file upload
+      tempFilePath = req.file.path;
+    } else if (imageUrl) {
+      // Handle URL-based upload
+      const response = await axios({
+        method: "GET",
+        url: imageUrl,
+        responseType: "stream",
+      });
 
-        const tempFilePath = path.join('/tmp', 'temp.jpg');
-        const writer = fs.createWriteStream(tempFilePath);
-        response.data.pipe(writer);
+      tempFilePath = path.join("/tmp", "temp.jpg");
+      const writer = fs.createWriteStream(tempFilePath);
+      response.data.pipe(writer);
 
-        await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-
-        const form = new FormData();
-        form.append('file', fs.createReadStream(tempFilePath), {
-            filename: 'temp.jpg',
-            contentType: 'image/jpg',
-        });
-        const uploadResponse = await axios({
-            method: 'POST',
-            url: 'https://graph.org/upload',
-            data: form,
-            headers: form.getHeaders(),
-        });
-
-        fs.unlinkSync(tempFilePath);
-
-        res.send(`https://graph.org${uploadResponse.data[0].src}`);
-    } catch (error) {
-        res.status(500).send(`Error: ${error.message}`);
+      await new Promise((resolve, reject) => {
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+      });
+    } else {
+      return res.status(400).send("No image URL or file provided.");
     }
+
+    // Prepare file for upload to envs.sh
+    const form = new FormData();
+    if (req.file) {
+      form.append("file", fs.createReadStream(tempFilePath), {
+        filename: req.file.originalname || "temp.jpg",
+        contentType: req.file.mimetype || "image/jpeg",
+      });
+    } else if (imageUrl) {
+      form.append("url", imageUrl);
+    }
+
+    // Add optional parameters
+    if (secret) {
+      form.append("secret", secret);
+    }
+    if (expires) {
+      form.append("expires", expires);
+    }
+
+    const uploadResponse = await axios({
+      method: "POST",
+      url: "https://envs.sh",
+      data: form,
+      headers: form.getHeaders(),
+    });
+
+    // Remove temporary file
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+
+    // Send the response
+    res.send(uploadResponse.data);
+  } catch (error) {
+    console.error("Error details:", error); // Log the error details
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+    if (error.response) {
+      console.error("Response data:", error.response.data); // Log the response data
+      console.error("Response status:", error.response.status); // Log the response status
+    }
+    res.status(500).send(`Error: ${error.message}`);
+  }
 });
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+  console.log(`Server is running on port ${port}`);
 });
