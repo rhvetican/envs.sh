@@ -15,6 +15,12 @@ const upload = multer({ dest: "uploads/" });
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, "public")));
 
+// Ensure the temporary directory exists
+const tempDir = path.join(__dirname, "tmp");
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir);
+}
+
 app.post("/upload", upload.single("imageFile"), async (req, res) => {
   const imageUrl = req.body.imageUrl;
   const secret = req.body.secret; // Optional secret parameter
@@ -33,7 +39,7 @@ app.post("/upload", upload.single("imageFile"), async (req, res) => {
         responseType: "stream",
       });
 
-      tempFilePath = path.join("/tmp", "temp.jpg");
+      tempFilePath = path.join(tempDir, "temp.jpg"); // Use the new temp directory
       const writer = fs.createWriteStream(tempFilePath);
       response.data.pipe(writer);
 
@@ -71,9 +77,11 @@ app.post("/upload", upload.single("imageFile"), async (req, res) => {
       headers: form.getHeaders(),
     });
 
-    // Remove temporary file
+    // Remove temporary file asynchronously
     if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
+      fs.unlink(tempFilePath, (err) => {
+        if (err) console.error("Error deleting temp file:", err);
+      });
     }
 
     // Send the response
@@ -81,13 +89,22 @@ app.post("/upload", upload.single("imageFile"), async (req, res) => {
   } catch (error) {
     console.error("Error details:", error); // Log the error details
     if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
+      fs.unlink(tempFilePath, (err) => {
+        if (err) console.error("Error deleting temp file:", err);
+      });
     }
+
+    let errorMessage = "An unexpected error occurred.";
+    
     if (error.response) {
+      errorMessage = `Error from envs.sh: ${error.response.data.message || error.message}`;
       console.error("Response data:", error.response.data); // Log the response data
       console.error("Response status:", error.response.status); // Log the response status
+    } else if (error.code) {
+      errorMessage = `File system error: ${error.code}`;
     }
-    res.status(500).send(`Error: ${error.message}`);
+
+    res.status(500).send(errorMessage);
   }
 });
 
