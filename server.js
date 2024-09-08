@@ -19,20 +19,8 @@ app.post("/upload", async (req, res) => {
     if (imageUrl) {
       // If an image URL is provided, use it
       form.append("url", imageUrl);
-    } else if (req.files && req.files.file) {
-      // If a file is uploaded
-      const tempFilePath = path.join("/tmp", "temp.jpg");
-      const writer = fs.createWriteStream(tempFilePath);
-      req.files.file.mv(tempFilePath, (err) => {
-        if (err) return res.status(500).send(err);
-      });
-
-      form.append("file", fs.createReadStream(tempFilePath), {
-        filename: "temp.jpg",
-        contentType: "image/jpg",
-      });
     } else {
-      return res.status(400).send("No image URL or file provided.");
+      return res.status(400).send("No image URL provided.");
     }
 
     if (secret) {
@@ -46,13 +34,15 @@ app.post("/upload", async (req, res) => {
       headers: form.getHeaders(),
     });
 
-    // Clean up the temporary file if it was created
-    if (fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
-    }
-
+    console.log("Upload Response:", uploadResponse.data); // Log the response from the upload
     res.send(uploadResponse.data);
   } catch (error) {
+    // Log detailed error information
+    console.error("Error during upload:", {
+      message: error.message,
+      response: error.response ? error.response.data : "No response data",
+      stack: error.stack,
+    });
     res.status(500).send(`Error: ${error.message}`);
   }
 });
