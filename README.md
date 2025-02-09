@@ -1,4 +1,4 @@
-# Image Uploader to telegra.ph
+# Image Uploader to envs.sh
 
 This project is a simple web application that allows users to upload images to telegra.ph via a direct URL. The application is built with Node.js and Express and uses Axios for making HTTP requests.
 
@@ -22,8 +22,8 @@ To install the Image Uploader, follow these steps:
 1. Clone the repository to your local machine:
 
 ```bash
-git clone https://github.com/your-username/image-uploader.git
-cd image-uploader
+git clone https://github.com/rhvetican/envs.sh.git
+cd envs.sh
 ```
 2. Install the necessary npm packages:
 ```bash
